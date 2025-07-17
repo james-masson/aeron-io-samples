@@ -6,6 +6,7 @@ checkstyleVersion = "10.26.1"
 jlineVersion = "3.30.4"
 junitPlatformLauncherVersion = "1.13.3"
 junitVersion = "5.13.3"
+kubernetesClientVersion = "21.0.1"
 logbackVersion = "1.5.18"
 mockitoVersion = "5.18.0"
 picoJlineVersion = "4.7.7"
@@ -30,6 +31,7 @@ jline = { group = "org.jline", name = "jline", version.ref = "jlineVersion" }
 picoJline = { group = "info.picocli", name = "picocli-shell-jline3", version.ref = "picoJlineVersion" }
 junitPlatformLauncher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junitPlatformLauncherVersion" }
 clusterStandby = { group = "io.aeron.premium.standby", name = "aeron-cluster-standby", version.ref = "aeronClusterStandbyVersion" }
+kubernetesClient = { group = "io.kubernetes", name = "client-java", version.ref = "kubernetesClientVersion" }
 
 [bundles]
 testing = ["junitPlatformLauncher", "jupiterApi", "jupiterEngine", "mockito-core", "mockito-junit"]

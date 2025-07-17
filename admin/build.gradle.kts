@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.picocli)
     implementation(libs.jline)
     implementation(libs.picoJline)
+    implementation(project(":shared"))
     implementation(project(":cluster-protocol"))
 }
 

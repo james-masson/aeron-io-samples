@@ -3,7 +3,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: aeron-io-sample-admin
-  namespace: aeron-io-sample-admin
   labels:
     app.kubernetes.io/name: aeron-io-sample-admin
     app.kubernetes.io/instance: aeron-io-sample-admin
@@ -19,6 +18,7 @@ spec:
       labels:
         app.kubernetes.io/name: aeron-io-sample-admin
         app.kubernetes.io/instance: aeron-io-sample-admin
+        aeron.io/media-driver: "true"
     spec:
       serviceAccountName: aeron-io-sample-admin
       volumes:
@@ -35,12 +35,15 @@ spec:
               containerPort: 49152
               protocol: UDP
           env:
+            - name: K8S_DISCOVERY
+              value: "true"
             - name: DUMB_TERMINAL
               value: "true"
             - name: RESPONSE_PORT
               value: "49152"
             - name: CLUSTER_ADDRESSES
-              value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.
+              value: aeron-io-sample-cluster-0,aeron-io-sample-cluster-1,aeron-io-sample-cluster-2
+              #value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.
           volumeMounts:
             - mountPath: /dev/shm
               name: shm

@@ -51,6 +51,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.aeron.samples.shared.KubernetesDiscovery;
+
 /**
  * Agent to interact with the cluster
  */
@@ -319,11 +321,26 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
         final String egressChannel = "aeron:udp?endpoint=" + localHostName + ":" + port;
         adminClientEgressListener = new AdminClientEgressListener(pendingMessageManager);
         adminClientEgressListener.setLineReader(lineReader);
-        mediaDriver = MediaDriver.launch(new MediaDriver.Context()
+
+        final MediaDriver.Context mediaDriverContext = new MediaDriver.Context()
             .threadingMode(ThreadingMode.SHARED)
             .dirDeleteOnStart(true)
             .errorHandler(this::logError)
-            .dirDeleteOnShutdown(true));
+            .dirDeleteOnShutdown(true);
+
+        // Configure Kubernetes discovery if enabled
+        KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
+        {
+            mediaDriverContext.resolverBootstrapNeighbor(resolverBootstrapNeighbors);
+            mediaDriverContext.resolverInterface("0.0.0.0:8050");
+            if (null != podName && !podName.isEmpty())
+            {
+                mediaDriverContext.resolverName(podName);
+            }
+        });
+
+        mediaDriver = MediaDriver.launch(mediaDriverContext);
+
         aeronCluster = AeronCluster.connect(
             new AeronCluster.Context()
                 .egressListener(adminClientEgressListener)
@@ -421,4 +438,5 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
         }
         runningFlag.set(false);
     }
+
 }

@@ -24,6 +24,8 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import io.aeron.samples.shared.KubernetesDiscovery;
+
 import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.agrona.concurrent.SystemEpochClock;
 import org.slf4j.Logger;
@@ -60,6 +62,17 @@ public class ClusterApp
 
         //this may need tuning for your environment.
         clusterConfig.consensusModuleContext().leaderHeartbeatTimeoutNs(TimeUnit.SECONDS.toNanos(3));
+
+        // Configure resolver bootstrap neighbors from Kubernetes pod IPs
+        KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
+        {
+            clusterConfig.mediaDriverContext().resolverBootstrapNeighbor(resolverBootstrapNeighbors);
+            clusterConfig.mediaDriverContext().resolverInterface("0.0.0.0:8050");
+            if (null != podName && !podName.isEmpty())
+            {
+                clusterConfig.mediaDriverContext().resolverName(podName);
+            }
+        });
 
         //await DNS resolution of all the hostnames
         hostAddresses.forEach(ClusterApp::awaitDnsResolution);

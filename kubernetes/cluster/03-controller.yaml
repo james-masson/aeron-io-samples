@@ -3,7 +3,6 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: aeron-io-sample-cluster
-  namespace: aeron-io-sample-cluster
   labels:
     app.kubernetes.io/name: aeron-io-sample-cluster
     app.kubernetes.io/instance: aeron-io-sample-cluster
@@ -20,7 +19,7 @@ spec:
       name: data-volume-claim
     spec:
       accessModes: [ReadWriteOnce]
-      storageClassName: standard
+      # storageClassName: local-path
       resources:
         requests:
           storage: 1Gi
@@ -31,6 +30,7 @@ spec:
       labels:
         app.kubernetes.io/name: aeron-io-sample-cluster
         app.kubernetes.io/instance: aeron-io-sample-cluster
+        aeron.io/media-driver: "true"
     spec:
       serviceAccountName: aeron-io-sample-cluster
       volumes:
@@ -47,17 +47,34 @@ spec:
           args:
             - -c
             - /home/aeron/jar/entrypoint.sh -Dnode.id=${POD_NAME##*-}
+          # -Daeron.driver.resolver.interface=0.0.0.0:8050 -Daeron.driver.resolver.name=cluster${POD_NAME##*-}
+          # -Daeron.driver.resolver.bootstrap.neighbor=aeron-io-sample-cluster-0.aeron-io-sample-cluster.default.svc.cluster.local.:8050,aeron-io-sample-cluster-1.aeron-io-sample-cluster.default.svc.cluster.local.:8050,aeron-io-sample-cluster-2.aeron-io-sample-cluster.default.svc.cluster.local.:8050
           env:
             - name: DNS_DELAY
+              value: "false"
+            - name: K8S_DISCOVERY
               value: "true"
             - name: BASE_DIR
               value: "/home/aeron/jar/aeron-cluster"
             - name: CLUSTER_ADDRESSES
-              value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.
+              # value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.default.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.default.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.default.svc.cluster.local.
+              value: aeron-io-sample-cluster-0,aeron-io-sample-cluster-1,aeron-io-sample-cluster-2
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: shm
+            - mountPath: /home/aeron/jar/aeron-cluster
+              name: data-volume-claim
+        - name: debug
+          image: "ubuntu"
+          imagePullPolicy: IfNotPresent
+          command:
+            - sleep
+          args:
+            - infinity
           volumeMounts:
             - mountPath: /dev/shm
               name: shm
