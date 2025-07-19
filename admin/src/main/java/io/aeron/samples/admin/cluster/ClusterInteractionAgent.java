@@ -318,7 +318,7 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
         final List<String> hostnames = Arrays.asList(clusterHosts.split(","));
         final String ingressEndpoints = ClusterConfig.ingressEndpoints(
             hostnames, basePort, ClusterConfig.CLIENT_FACING_PORT_OFFSET);
-        final String egressChannel = "aeron:udp?endpoint=" + localHostName + ":" + port;
+
         adminClientEgressListener = new AdminClientEgressListener(pendingMessageManager);
         adminClientEgressListener.setLineReader(lineReader);
 
@@ -327,6 +327,28 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
             .dirDeleteOnStart(true)
             .errorHandler(this::logError)
             .dirDeleteOnShutdown(true);
+
+        // Configure egress channel - use media driver name for K8s discovery, local IP otherwise
+        final String egressChannel;
+        if (KubernetesDiscovery.isKubernetesDiscoveryEnabled())
+        {
+            final String podName = KubernetesDiscovery.getPodName();
+            if (null != podName && !podName.isEmpty())
+            {
+                egressChannel = "aeron:udp?endpoint=" + podName + ":" + port;
+                log("Using media driver name for egress channel: " + egressChannel, AttributedStyle.CYAN);
+            }
+            else
+            {
+                egressChannel = "aeron:udp?endpoint=" + localHostName + ":" + port;
+                log("Pod name not available, using local hostname for egress channel: " + egressChannel,
+                    AttributedStyle.YELLOW);
+            }
+        }
+        else
+        {
+            egressChannel = "aeron:udp?endpoint=" + localHostName + ":" + port;
+        }
 
         // Configure Kubernetes discovery if enabled
         KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
@@ -341,14 +363,28 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
 
         mediaDriver = MediaDriver.launch(mediaDriverContext);
 
-        aeronCluster = AeronCluster.connect(
-            new AeronCluster.Context()
-                .egressListener(adminClientEgressListener)
-                .egressChannel(egressChannel)
-                .ingressChannel(INGRESS_CHANNEL)
-                .ingressEndpoints(ingressEndpoints)
-                .errorHandler(this::logError)
-                .aeronDirectoryName(mediaDriver.aeronDirectoryName()));
+        // Wait for media driver gossip to complete when using K8s discovery
+        if (KubernetesDiscovery.isKubernetesDiscoveryEnabled())
+        {
+            try
+            {
+                Thread.sleep(1000);
+                log("Waited 1 second for media driver gossip to complete", AttributedStyle.CYAN);
+            }
+            catch (final InterruptedException e)
+            {
+                log("Interrupted while waiting for media driver gossip", AttributedStyle.YELLOW);
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        // Retry AeronCluster connection with backoff when using K8s discovery
+        aeronCluster = connectToClusterWithRetry(
+            adminClientEgressListener,
+            egressChannel,
+            ingressEndpoints,
+            mediaDriver.aeronDirectoryName()
+        );
 
         log("Connected to cluster leader, node " + aeronCluster.leaderMemberId(), AttributedStyle.GREEN);
     }
@@ -423,6 +459,81 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
         {
             log("Not connected to cluster. Connect first", AttributedStyle.RED);
         }
+    }
+
+    /**
+     * Connects to the cluster with retry logic and exponential backoff.
+     * When Kubernetes discovery is enabled, uses up to 10 retry attempts with exponential backoff.
+     * For non-Kubernetes environments, attempts connection only once.
+     *
+     * @param egressListener the egress listener for cluster events
+     * @param egressChannel the egress channel URI
+     * @param ingressEndpoints the cluster ingress endpoints
+     * @param aeronDirectoryName the aeron directory name
+     * @return the connected AeronCluster instance
+     * @throws RuntimeException if all connection attempts fail
+     */
+    private AeronCluster connectToClusterWithRetry(
+        final AdminClientEgressListener egressListener,
+        final String egressChannel,
+        final String ingressEndpoints,
+        final String aeronDirectoryName)
+    {
+        final int maxRetries = KubernetesDiscovery.isKubernetesDiscoveryEnabled() ? 10 : 1;
+        final long initialDelayMs = 500;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                if (attempt > 1)
+                {
+                    log("Attempting cluster connection (attempt " + attempt + " of " + maxRetries + ")",
+                        AttributedStyle.YELLOW);
+                }
+
+                log("Connecting to cluster with:", AttributedStyle.CYAN);
+                log("  egressChannel: " + egressChannel, AttributedStyle.CYAN);
+                log("  ingressChannel: " + INGRESS_CHANNEL, AttributedStyle.CYAN);
+                log("  ingressEndpoints: " + ingressEndpoints, AttributedStyle.CYAN);
+                log("  aeronDirectoryName: " + aeronDirectoryName, AttributedStyle.CYAN);
+
+                return AeronCluster.connect(
+                    new AeronCluster.Context()
+                        .egressListener(egressListener)
+                        .egressChannel(egressChannel)
+                        .ingressChannel(INGRESS_CHANNEL)
+                        .ingressEndpoints(ingressEndpoints)
+                        .errorHandler(this::logError)
+                        .aeronDirectoryName(aeronDirectoryName)
+                );
+            }
+            catch (final Exception e)
+            {
+                if (attempt == maxRetries)
+                {
+                    log("Failed to connect to cluster after " + maxRetries + " attempts: " + e.getMessage(),
+                        AttributedStyle.RED);
+                    throw e;
+                }
+
+                final long delayMs = initialDelayMs * (1L << (attempt - 1)); // Exponential backoff
+                log("Cluster connection failed (attempt " + attempt + "), retrying in " + delayMs + "ms: " +
+                    e.getMessage(), AttributedStyle.YELLOW);
+
+                try
+                {
+                    Thread.sleep(delayMs);
+                }
+                catch (final InterruptedException ie)
+                {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting to retry cluster connection", ie);
+                }
+            }
+        }
+
+        throw new RuntimeException("Unreachable code");
     }
 
     @Override

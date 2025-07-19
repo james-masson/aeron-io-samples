@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.aeron)
     implementation(libs.slf4j)
     implementation(libs.logback)
+    implementation(project(":shared"))
     testImplementation(libs.bundles.testing)
 }
 

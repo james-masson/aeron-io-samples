@@ -43,7 +43,7 @@ spec:
               value: "49152"
             - name: CLUSTER_ADDRESSES
               value: aeron-io-sample-cluster-0,aeron-io-sample-cluster-1,aeron-io-sample-cluster-2
-              #value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.aeron-io-sample-cluster.svc.cluster.local.
+              #  value: aeron-io-sample-cluster-0.aeron-io-sample-cluster.default.svc.cluster.local.,aeron-io-sample-cluster-1.aeron-io-sample-cluster.default.svc.cluster.local.,aeron-io-sample-cluster-2.aeron-io-sample-cluster.default.svc.cluster.local.
           volumeMounts:
             - mountPath: /dev/shm
               name: shm

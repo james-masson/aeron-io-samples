@@ -43,6 +43,7 @@ import io.aeron.cluster.ClusterMember;
 import io.aeron.cluster.RecordingLog;
 import io.aeron.driver.MediaDriver;
 import io.aeron.samples.cluster.ClusterConfig;
+import io.aeron.samples.shared.KubernetesDiscovery;
 
 /**
  * Sample cluster backup application
@@ -152,7 +153,20 @@ public class ClusterBackupApp
 
     private static MediaDriver.Context mediaDriverContext()
     {
-        return new MediaDriver.Context().dirDeleteOnStart(true);
+        final MediaDriver.Context mediaDriverContext = new MediaDriver.Context().dirDeleteOnStart(true);
+
+        // Configure Kubernetes discovery if enabled
+        KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
+        {
+            mediaDriverContext.resolverBootstrapNeighbor(resolverBootstrapNeighbors);
+            mediaDriverContext.resolverInterface("0.0.0.0:8050");
+            if (null != podName && !podName.isEmpty())
+            {
+                mediaDriverContext.resolverName(podName);
+            }
+        });
+
+        return mediaDriverContext;
     }
 
     private static String getClusterConsensusEndpoints()
@@ -207,10 +221,11 @@ public class ClusterBackupApp
         {
             LOGGER.info("Waiting 5 seconds for DNS to be registered...");
             quietSleep(5000);
-        }
-        java.security.Security.setProperty("networkaddress.cache.ttl", "0");
+            java.security.Security.setProperty("networkaddress.cache.ttl", "0");
 
-        Arrays.stream(hosts).forEach(ClusterBackupApp::awaitDnsResolution);
+            Arrays.stream(hosts).forEach(ClusterBackupApp::awaitDnsResolution);
+        }
+
     }
 
     private static void awaitDnsResolution(final String host)

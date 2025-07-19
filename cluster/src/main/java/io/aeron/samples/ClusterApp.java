@@ -160,29 +160,29 @@ public class ClusterApp
         {
             LOGGER.info("Waiting 5 seconds for DNS to be registered...");
             quietSleep(5000);
-        }
 
-        final long endTime = SystemEpochClock.INSTANCE.time() + 60000;
-        java.security.Security.setProperty("networkaddress.cache.ttl", "0");
+            final long endTime = SystemEpochClock.INSTANCE.time() + 60000;
+            java.security.Security.setProperty("networkaddress.cache.ttl", "0");
 
-        boolean resolved = false;
-        while (!resolved)
-        {
-            if (SystemEpochClock.INSTANCE.time() > endTime)
+            boolean resolved = false;
+            while (!resolved)
             {
-                LOGGER.error("cannot resolve name {}, exiting", host);
-                System.exit(-1);
-            }
+                if (SystemEpochClock.INSTANCE.time() > endTime)
+                {
+                    LOGGER.error("cannot resolve name {}, exiting", host);
+                    System.exit(-1);
+                }
 
-            try
-            {
-                InetAddress.getByName(host);
-                resolved = true;
-            }
-            catch (final UnknownHostException e)
-            {
-                LOGGER.warn("cannot yet resolve name {}, retrying in 3 seconds", host);
-                quietSleep(3000);
+                try
+                {
+                    InetAddress.getByName(host);
+                    resolved = true;
+                }
+                catch (final UnknownHostException e)
+                {
+                    LOGGER.warn("cannot yet resolve name {}, retrying in 3 seconds", host);
+                    quietSleep(3000);
+                }
             }
         }
     }

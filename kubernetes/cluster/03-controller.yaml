@@ -68,6 +68,13 @@ spec:
               name: shm
             - mountPath: /home/aeron/jar/aeron-cluster
               name: data-volume-claim
+          resources:
+            limits:
+              memory: "1Gi"
+              cpu: 1
+            requests:
+              memory: "1Gi"
+              cpu: 1
         - name: debug
           image: "ubuntu"
           imagePullPolicy: IfNotPresent
@@ -80,3 +87,10 @@ spec:
               name: shm
             - mountPath: /home/aeron/jar/aeron-cluster
               name: data-volume-claim
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "100m"
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
