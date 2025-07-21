@@ -21,7 +21,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.ApiException;
@@ -109,11 +111,21 @@ public class KubernetesDiscovery
             }
             catch (final IOException e)
             {
-                LOGGER.warn("Failed to read namespace from service account file", e);
+                LOGGER.warn("K8s neighbour discovery: Failed to read namespace from service account", e);
             }
         }
 
         return "default";
+    }
+
+    /**
+     * Checks if only the oldest media driver should be used as bootstrap neighbor.
+     * @return true if K8S_USE_OLDEST_ONLY environment variable is set to "true"
+     */
+    public static boolean useOldestMediaDriverOnly()
+    {
+        final String useOldest = System.getenv("K8S_USE_OLDEST_ONLY");
+        return "true".equalsIgnoreCase(useOldest);
     }
 
     /**
@@ -133,13 +145,13 @@ public class KubernetesDiscovery
 
         if (!isKubernetesDiscoveryEnabled())
         {
-            LOGGER.info("Kubernetes discovery is disabled");
+            LOGGER.info("K8s neighbour discovery: Disabled");
             return podIPs;
         }
 
         if (!isRunningInKubernetes())
         {
-            LOGGER.error("K8S_DISCOVERY is enabled but application is not running in Kubernetes environment");
+            LOGGER.error("K8s neighbour discovery: Enabled but not running in Kubernetes");
             System.exit(-1);
         }
 
@@ -147,11 +159,11 @@ public class KubernetesDiscovery
         if (null == podLabels || podLabels.isEmpty())
         {
             podLabels = "aeron.io/media-driver=true";
-            LOGGER.info("K8S_POD_LABELS not set, using default: {}", podLabels);
+            LOGGER.info("K8s neighbour discovery: Using default labels {}", podLabels);
         }
 
         final String namespace = getKubernetesNamespace();
-        LOGGER.info("Searching for pods with labels '{}' in namespace '{}'", podLabels, namespace);
+        LOGGER.info("K8s neighbour discovery: Searching pods {} in namespace {}", podLabels, namespace);
 
         try
         {
@@ -164,45 +176,121 @@ public class KubernetesDiscovery
                 .fieldSelector("status.phase=Running")
                 .execute();
 
-            for (final V1Pod pod : podList.getItems())
-            {
-                try
+            // Sort pods by creation timestamp (oldest first) and extract IPs
+            podList.getItems().stream()
+                .filter(pod -> pod.getStatus() != null && pod.getStatus().getPodIP() != null)
+                .filter(pod -> !pod.getStatus().getPodIP().isEmpty() && !"<none>".equals(pod.getStatus().getPodIP()))
+                .sorted(Comparator.comparing(pod -> pod.getMetadata().getCreationTimestamp()))
+                .forEach(pod ->
                 {
-                    if (null != pod.getStatus() && null != pod.getStatus().getPodIP())
+                    try
                     {
-                        final String podIP = pod.getStatus().getPodIP();
-                        if (!podIP.isEmpty() && !"<none>".equals(podIP))
-                        {
-                            podIPs.add(podIP);
-                        }
+                        podIPs.add(pod.getStatus().getPodIP());
                     }
-                }
-                catch (final Exception e)
-                {
-                    LOGGER.warn("Error processing pod {}: {}",
-                        pod.getMetadata() != null ? pod.getMetadata().getName() : "unknown",
-                        e.getMessage());
-                }
-            }
+                    catch (final Exception e)
+                    {
+                        LOGGER.warn("K8s neighbour discovery: Error processing pod {}: {}",
+                            pod.getMetadata() != null ? pod.getMetadata().getName() : "unknown",
+                            e.getMessage());
+                    }
+                });
 
-            LOGGER.info("Found {} pod IPs: {}", podIPs.size(), podIPs);
+            LOGGER.info("K8s neighbour discovery: Found {} pod IPs: {}", podIPs.size(), podIPs);
         }
         catch (final ApiException e)
         {
-            LOGGER.error("Kubernetes API error: {} - {}", e.getCode(), e.getResponseBody());
+            LOGGER.error("K8s neighbour discovery: API error {} - {}", e.getCode(), e.getResponseBody());
         }
         catch (final IOException e)
         {
-            LOGGER.error("Error configuring Kubernetes client", e);
+            LOGGER.error("K8s neighbour discovery: Client configuration failed", e);
         }
 
         return podIPs;
     }
 
     /**
+     * Detects if the application is running inside Kubernetes and extracts the IP address
+     * of the oldest pod based on environment variables for labels and namespace using the Kubernetes Java API.
+     *
+     * Environment variables:
+     * - K8S_DISCOVERY: Set to "true" to enable Kubernetes discovery
+     * - K8S_POD_LABELS: Comma-separated key=value pairs for pod labels to match (e.g., "app=cluster,role=node")
+     * - K8S_NAMESPACE: Kubernetes namespace to search in (defaults to current namespace)
+     *
+     * @return IP address of the oldest pod matching the specified labels and namespace, or null if none found
+     */
+    public static String getOldestKubernetesPodIP()
+    {
+        if (!isKubernetesDiscoveryEnabled())
+        {
+            LOGGER.info("K8s neighbour discovery: Disabled");
+            return null;
+        }
+
+        if (!isRunningInKubernetes())
+        {
+            LOGGER.error("K8s neighbour discovery: Enabled but not running in Kubernetes");
+            System.exit(-1);
+        }
+
+        String podLabels = System.getenv("K8S_POD_LABELS");
+        if (null == podLabels || podLabels.isEmpty())
+        {
+            podLabels = "aeron.io/media-driver=true";
+            LOGGER.info("K8s neighbour discovery: Using default labels {}", podLabels);
+        }
+
+        final String namespace = getKubernetesNamespace();
+        LOGGER.info("K8s neighbour discovery: Searching pods {} in namespace {}", podLabels, namespace);
+
+        try
+        {
+            final ApiClient client = Config.defaultClient();
+            Configuration.setDefaultApiClient(client);
+
+            final CoreV1Api api = new CoreV1Api();
+            final V1PodList podList = api.listNamespacedPod(namespace)
+                .labelSelector(podLabels)
+                .fieldSelector("status.phase=Running")
+                .execute();
+
+            final Optional<V1Pod> oldestPod = podList.getItems().stream()
+                .filter(pod -> pod.getStatus() != null && pod.getStatus().getPodIP() != null)
+                .filter(pod -> !pod.getStatus().getPodIP().isEmpty() && !"<none>".equals(pod.getStatus().getPodIP()))
+                .min(Comparator.comparing(pod -> pod.getMetadata().getCreationTimestamp()));
+
+            if (oldestPod.isPresent())
+            {
+                final String oldestPodIP = oldestPod.get().getStatus().getPodIP();
+                LOGGER.info("K8s neighbour discovery: Found oldest pod IP {}", oldestPodIP);
+                return oldestPodIP;
+            }
+            else
+            {
+                LOGGER.warn("K8s neighbour discovery: No valid pods found with labels {} in namespace {}",
+                    podLabels,
+                    namespace
+                );
+                return null;
+            }
+        }
+        catch (final ApiException e)
+        {
+            LOGGER.error("K8s neighbour discovery: API error {} - {}", e.getCode(), e.getResponseBody());
+        }
+        catch (final IOException e)
+        {
+            LOGGER.error("K8s neighbour discovery: Client configuration failed", e);
+        }
+
+        return null;
+    }
+
+    /**
      * Builds the resolver bootstrap neighbors string from Kubernetes pod IPs
      * @param port the port to use for each neighbor
-     * @return comma-separated string of IP:port neighbors, or null if none found
+     * @return comma-separated string of IP:port neighbors or single IP:port if oldest-only mode, or null if none found
      */
     public static String buildResolverBootstrapNeighbors(final int port)
     {
@@ -211,26 +299,42 @@ public class KubernetesDiscovery
             return null;
         }
 
-        final List<String> podIPs = getKubernetesPodIPs();
-        if (podIPs.isEmpty())
+        if (useOldestMediaDriverOnly())
         {
-            LOGGER.error("Kubernetes discovery is enabled but no pod IPs were found");
-            System.exit(-1);
-        }
-
-        final StringBuilder neighbors = new StringBuilder();
-        for (int i = 0; i < podIPs.size(); i++)
-        {
-            if (i > 0)
+            final String oldestPodIP = getOldestKubernetesPodIP();
+            if (null == oldestPodIP)
             {
-                neighbors.append(",");
+                LOGGER.error("K8s neighbour discovery: No pod IP found");
+                System.exit(-1);
             }
-            neighbors.append(podIPs.get(i)).append(":").append(port);
-        }
 
-        final String result = neighbors.toString();
-        LOGGER.info("Resolver bootstrap neighbors: {}", result);
-        return result;
+            final String result = oldestPodIP + ":" + port;
+            LOGGER.info("K8s neighbour discovery: Bootstrap neighbor (oldest only) {}", result);
+            return result;
+        }
+        else
+        {
+            final List<String> podIPs = getKubernetesPodIPs();
+            if (podIPs.isEmpty())
+            {
+                LOGGER.error("K8s neighbour discovery: No pod IPs found");
+                System.exit(-1);
+            }
+
+            final StringBuilder neighbors = new StringBuilder();
+            for (int i = 0; i < podIPs.size(); i++)
+            {
+                if (i > 0)
+                {
+                    neighbors.append(",");
+                }
+                neighbors.append(podIPs.get(i)).append(":").append(port);
+            }
+
+            final String result = neighbors.toString();
+            LOGGER.info("K8s neighbour discovery: Bootstrap neighbors {}", result);
+            return result;
+        }
     }
 
     /**
@@ -244,7 +348,7 @@ public class KubernetesDiscovery
     {
         if (!isKubernetesDiscoveryEnabled())
         {
-            LOGGER.info("Kubernetes discovery is disabled");
+            LOGGER.info("K8s neighbour discovery: Disabled");
             return false;
         }
 
@@ -255,17 +359,17 @@ public class KubernetesDiscovery
         {
             final String podName = getPodName();
             configureResolver.configure(resolverBootstrapNeighbors, podName);
-            LOGGER.info("Configured resolver bootstrap neighbors: {}", resolverBootstrapNeighbors);
+            LOGGER.info("K8s neighbour discovery: Configured bootstrap neighbors {}", resolverBootstrapNeighbors);
 
             if (null != podName && !podName.isEmpty())
             {
-                LOGGER.info("Configured resolver name: {}", podName);
+                LOGGER.info("K8s neighbour discovery: Configured resolver name {}", podName);
             }
             return true;
         }
         else
         {
-            LOGGER.info("No resolver bootstrap neighbors configured");
+            LOGGER.info("K8s neighbour discovery: No bootstrap neighbors configured");
             return false;
         }
     }

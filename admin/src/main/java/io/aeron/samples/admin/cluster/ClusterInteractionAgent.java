@@ -354,7 +354,9 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
         KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
         {
             mediaDriverContext.resolverBootstrapNeighbor(resolverBootstrapNeighbors);
-            mediaDriverContext.resolverInterface("0.0.0.0:8050");
+            mediaDriverContext.resolverInterface(podName + ":8050");
+            log("K8s neighbour discovery: Resolver interface set to " + podName + ":8050", AttributedStyle.CYAN);
+
             if (null != podName && !podName.isEmpty())
             {
                 mediaDriverContext.resolverName(podName);
@@ -369,11 +371,13 @@ public class ClusterInteractionAgent implements Agent, MessageHandler
             try
             {
                 Thread.sleep(1000);
-                log("Waited 1 second for media driver gossip to complete", AttributedStyle.CYAN);
+                log("K8s neighbour discovery: Waited 1 second for media driver gossip to complete",
+                    AttributedStyle.CYAN);
             }
             catch (final InterruptedException e)
             {
-                log("Interrupted while waiting for media driver gossip", AttributedStyle.YELLOW);
+                log("K8s neighbour discovery: Interrupted while waiting for media driver gossip",
+                    AttributedStyle.YELLOW);
                 Thread.currentThread().interrupt();
             }
         }

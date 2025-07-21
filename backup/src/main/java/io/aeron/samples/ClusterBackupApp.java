@@ -159,12 +159,28 @@ public class ClusterBackupApp
         KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
         {
             mediaDriverContext.resolverBootstrapNeighbor(resolverBootstrapNeighbors);
-            mediaDriverContext.resolverInterface("0.0.0.0:8050");
+            mediaDriverContext.resolverInterface(podName + ":8050");
+            LOGGER.info("K8s neighbour discovery: Resolver Interface set to: " + podName + ":8050");
             if (null != podName && !podName.isEmpty())
             {
                 mediaDriverContext.resolverName(podName);
             }
         });
+
+        // Wait for media driver gossip to complete when using K8s discovery
+        if (KubernetesDiscovery.isKubernetesDiscoveryEnabled())
+        {
+            try
+            {
+                Thread.sleep(1000);
+                LOGGER.info("K8s neighbour discovery: Waited 1 second for media driver gossip to complete");
+            }
+            catch (final InterruptedException e)
+            {
+                LOGGER.info("K8s neighbour discovery: Interrupted while waiting for media driver gossip");
+                Thread.currentThread().interrupt();
+            }
+        }
 
         return mediaDriverContext;
     }

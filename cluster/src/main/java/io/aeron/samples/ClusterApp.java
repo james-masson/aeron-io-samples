@@ -67,7 +67,8 @@ public class ClusterApp
         KubernetesDiscovery.configureResolverBootstrapNeighbors((resolverBootstrapNeighbors, podName) ->
         {
             clusterConfig.mediaDriverContext().resolverBootstrapNeighbor(resolverBootstrapNeighbors);
-            clusterConfig.mediaDriverContext().resolverInterface("0.0.0.0:8050");
+            clusterConfig.mediaDriverContext().resolverInterface(podName + ":8050");
+            LOGGER.info("K8s neighbour discovery: Resolver Interface set to: " + podName + ":8050");
             if (null != podName && !podName.isEmpty())
             {
                 clusterConfig.mediaDriverContext().resolverName(podName);

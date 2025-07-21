@@ -78,10 +78,7 @@ spec:
         - name: debug
           image: "ubuntu"
           imagePullPolicy: IfNotPresent
-          command:
-            - sleep
-          args:
-            - infinity
+          command: [ "/bin/bash", "-c", "trap \"echo Shutting down; exit 0\" SIGTERM SIGINT SIGKILL; /bin/sleep infinity & wait"]
           volumeMounts:
             - mountPath: /dev/shm
               name: shm
