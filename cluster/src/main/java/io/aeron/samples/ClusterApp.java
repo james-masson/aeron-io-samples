@@ -70,11 +70,37 @@ public class ClusterApp
                 clusterConfig.archiveContext(),
                 clusterConfig.consensusModuleContext().terminationHook(barrier::signalAll));
             ClusteredServiceContainer ignored1 = ClusteredServiceContainer.launch(
-                clusterConfig.clusteredServiceContext().terminationHook(barrier::signalAll)))
+                clusterConfig.clusteredServiceContext().terminationHook(barrier::signalAll));
+            ArchiveResponseSession ignored2 = openArchiveResponseSession(
+                clusterConfig, nodeId, hostAddresses.get(nodeId), portBase))
         {
             LOGGER.info("Started Cluster Node...");
             barrier.await();
             LOGGER.info("Exiting");
+        }
+    }
+
+    /**
+     * Open the standing archive response channel session Lucern's test harness expects, without
+     * letting a failure take the cluster node down with it.
+     *
+     * @param clusterConfig this node's cluster configuration
+     * @param nodeId        this member's id
+     * @param hostname      this member's hostname
+     * @param portBase      the cluster port base
+     * @return the open session, or null if it could not be opened
+     */
+    private static ArchiveResponseSession openArchiveResponseSession(
+        final ClusterConfig clusterConfig, final int nodeId, final String hostname, final int portBase)
+    {
+        try
+        {
+            return ArchiveResponseSession.open(clusterConfig, nodeId, hostname, portBase);
+        }
+        catch (final RuntimeException ex)
+        {
+            LOGGER.warn("Archive response channel session not opened; continuing without it", ex);
+            return null;
         }
     }
 

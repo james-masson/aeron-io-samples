@@ -23,6 +23,8 @@
         </encoder>
     </appender>
 
+    <logger name="io.aeron.samples.domain.auctions.Auctions" level="warn"/>
+
     <root level="${LOG_LEVEL:-info}">
         <appender-ref ref="STDOUT"/>
     </root>
