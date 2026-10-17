@@ -18,6 +18,7 @@ package io.aeron.samples;
 
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.EgressListener;
+import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.Header;
 import io.aeron.samples.cluster.ClusterConfig;
 import io.aeron.samples.cluster.protocol.AddAuctionBidCommandEncoder;
@@ -70,6 +71,8 @@ public class ClusterLoadClient implements EgressListener
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(ClusterLoadClient.class);
     private static final int MAX_CONSECUTIVE_BID_FAILURES = 10;
+    private static final long CONNECT_DEADLINE_MS = 120_000;
+    private static final long CONNECT_RETRY_PAUSE_MS = 500;
 
     private final AtomicLong received = new AtomicLong();
     private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
@@ -158,13 +161,7 @@ public class ClusterLoadClient implements EgressListener
         final AtomicBoolean running = new AtomicBoolean(true);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> running.set(false)));
 
-        try (AeronCluster aeronCluster = AeronCluster.connect(
-            new AeronCluster.Context()
-                .egressListener(client)
-                .egressChannel("aeron:udp?endpoint=" + podIp + ":0")
-                .ingressChannel("aeron:udp")
-                .ingressEndpoints(ingressEndpoints)
-                .aeronDirectoryName(aeronDir)))
+        try (AeronCluster aeronCluster = connectWithRetry(client, podIp, ingressEndpoints, aeronDir, running))
         {
             LOGGER.info("Connected to cluster.");
 
@@ -315,6 +312,45 @@ public class ClusterLoadClient implements EgressListener
         {
             LOGGER.error("ClusterLoadClient failed — exiting for pod restart", ex);
             System.exit(1);
+        }
+    }
+
+    // The harness starts this client alongside the cluster, which needs a few
+    // seconds to elect a leader. A connect attempt times out after the cluster
+    // message timeout (5 s); exiting then would leave the retry to kubelet's
+    // restart back-off (10 s, then 20 s). Retrying here connects as soon as a
+    // leader answers. Any other failure still exits, so it still shows as a
+    // container restart.
+    private static AeronCluster connectWithRetry(
+        final ClusterLoadClient client,
+        final String podIp,
+        final String ingressEndpoints,
+        final String aeronDir,
+        final AtomicBoolean running) throws InterruptedException
+    {
+        final long deadline = System.currentTimeMillis() + CONNECT_DEADLINE_MS;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                // A fresh context each time: a failed connect closes the one it was given.
+                return AeronCluster.connect(
+                    new AeronCluster.Context()
+                        .egressListener(client)
+                        .egressChannel("aeron:udp?endpoint=" + podIp + ":0")
+                        .ingressChannel("aeron:udp")
+                        .ingressEndpoints(ingressEndpoints)
+                        .aeronDirectoryName(aeronDir));
+            }
+            catch (final TimeoutException ex)
+            {
+                if (!running.get() || System.currentTimeMillis() >= deadline)
+                {
+                    throw ex;
+                }
+                LOGGER.info("Cluster not answering yet (attempt {}), retrying: {}", attempt, ex.getMessage());
+                Thread.sleep(CONNECT_RETRY_PAUSE_MS);
+            }
         }
     }
 

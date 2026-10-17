@@ -194,8 +194,13 @@ public class ClusterApp
             }
             catch (final UnknownHostException e)
             {
-                LOGGER.warn("cannot yet resolve name {}, retrying in 3 seconds", host);
-                quietSleep(3000);
+                // A short retry only helps if no cache replays the failure. The lucern
+                // harness turns both off: the JVM's negative cache through
+                // -Djava.security.properties (helm/lucern java-dns.security), and
+                // CoreDNS's for cluster.local (scripts/setup_k8s_coredns.sh). That
+                // is what lets it run with DNS_DELAY=false.
+                LOGGER.warn("cannot yet resolve name {}, retrying in 500 ms", host);
+                quietSleep(500);
             }
         }
     }
